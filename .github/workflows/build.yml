@@ -117,6 +117,20 @@ jobs:
           P.write_text(text, encoding="utf-8")
           PY
 
+      # В Yarn для 1.21.2+ метод isFallFlying() называется isGliding().
+      # Замена делается только в копии на раннере, файлы в репозитории не меняются.
+      - name: Patch renamed method
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          MC=$(sed -n 's/^minecraft_version[[:space:]]*=[[:space:]]*//p' gradle.properties | tr -d '\r ')
+          if [ "$(printf '%s\n' 1.21.2 "$MC" | sort -V | sed -n '1p')" = "1.21.2" ]; then
+            find src -name '*.java' -exec sed -i 's/\.isFallFlying()/.isGliding()/g' {} +
+            echo "isFallFlying() -> isGliding() для Minecraft $MC"
+            grep -rn 'isGliding()' src || true
+          else
+            echo "Minecraft $MC: замена не нужна"
+          fi
+
       - name: Build
         working-directory: ${{ env.PROJECT_DIR }}
         run: gradle build --no-daemon --stacktrace --console=plain
