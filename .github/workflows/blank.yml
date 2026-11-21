@@ -1,0 +1,63 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      gradle_version:
+        description: 'Gradle version'
+        default: '8.14'
+      loom_version:
+        description: 'Fabric Loom (пусто = авто)'
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ inputs.gradle_version || '8.14' }}
+
+      - name: Resolve Fabric versions
+        env:
+          LOOM_OVERRIDE: ${{ inputs.loom_version }}
+        run: python3 .github/resolve_versions.py
+
+      - name: Build
+        run: gradle build --no-daemon --stacktrace
+
+      - name: Package full folder
+        run: |
+          mkdir -p dist/triggerbot
+          find build/libs -maxdepth 1 -name '*.jar' \
+            ! -name '*-dev.jar' ! -name '*-sources.jar' \
+            -exec cp {} dist/triggerbot/ \;
+          cp -r src dist/triggerbot/
+          cp build.gradle settings.gradle gradle.properties dist/triggerbot/
+          cp README.md dist/triggerbot/ || true
+          ls -la dist/triggerbot
+
+      - name: Upload jar only
+        uses: actions/upload-artifact@v4
+        with:
+          name: triggerbot-jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-dev.jar
+            !build/libs/*-sources.jar
+          if-no-files-found: error
+
+      - name: Upload full ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: triggerbot-full
+          path: dist/triggerbot/
+          if-no-files-found: error
