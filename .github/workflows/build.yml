@@ -41,9 +41,11 @@ jobs:
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories {
-                  maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
-                  mavenCentral()
+                  maven { url = 'https://maven.fabricmc.net/' }
+                  maven { url = 'https://maven-central.storage-download.googleapis.com/maven2/' }
+                  maven { url = 'https://maven.aliyun.com/repository/public' }
                   gradlePluginPortal()
+                  mavenCentral()
               }
           }
           rootProject.name = 'triggerbot'
@@ -53,7 +55,11 @@ jobs:
           version = project.mod_version
           group = project.maven_group
           base { archivesName = project.archives_base_name }
-          repositories { mavenCentral() }
+          repositories {
+              maven { url = 'https://maven-central.storage-download.googleapis.com/maven2/' }
+              maven { url = 'https://maven.fabricmc.net/' }
+              mavenCentral()
+          }
           dependencies {
               minecraft "com.mojang:minecraft:${project.minecraft_version}"
               mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
@@ -559,6 +565,30 @@ jobs:
           }
           EOF
           find . -name '*.java' | sort
+
+      - name: Fix Maven mirrors
+        run: |
+          IU="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          mkdir -p "$IU"
+          cat > "$IU/mirror.gradle" <<'EOF'
+          def MIRROR = 'https://maven-central.storage-download.googleapis.com/maven2/'
+          def patch = { repos ->
+              repos.all { r ->
+                  if (r instanceof MavenArtifactRepository) {
+                      String u = r.url.toString()
+                      if (u.startsWith('https://repo.maven.apache.org') || u.startsWith('https://repo1.maven.org')) {
+                          r.url = MIRROR
+                      }
+                  }
+              }
+          }
+          gradle.settingsEvaluated { s -> patch(s.pluginManagement.repositories) }
+          gradle.allprojects { p ->
+              patch(p.repositories)
+              patch(p.buildscript.repositories)
+          }
+          EOF
+          echo "mirror installed into $IU"
 
       - name: Resolve versions
         env:
