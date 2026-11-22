@@ -4,100 +4,38 @@ on:
   push:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: 21
 
-      - name: Extract project
-        run: |
-          python3 - <<'PY'
-          import re, sys, zipfile, pathlib
-          root = pathlib.Path('.')
-          if any(p for p in root.rglob('settings.gradle') if '.git' not in p.parts):
-              print('исходники уже в репозитории'); sys.exit(0)
-          out = pathlib.Path('_src')
-          html = next((p for p in root.rglob('*.html') if '.git' not in p.parts), None)
-          if html:
-              text = html.read_text(encoding='utf-8')
-              blocks = re.findall(
-                  r'<script type="text/plain" data-path="([^"]+)">(.*?)</script>', text, re.S)
-              if not blocks:
-                  sys.exit('::error::в html нет блоков data-path')
-              for path, body in blocks:
-                  p = out / path
-                  p.parent.mkdir(parents=True, exist_ok=True)
-                  p.write_text(body.lstrip('\n'), encoding='utf-8')
-              print('извлечено файлов:', len(blocks), 'из', html)
-          else:
-              zips = [p for p in root.glob('*.zip')]
-              if not zips:
-                  sys.exit('::error::нет ни исходников, ни index.html, ни zip')
-              zipfile.ZipFile(zips[0]).extractall(out)
-              print('распакован', zips[0])
-          PY
-
-      - name: Locate project
-        run: |
-          S=$(find . -maxdepth 5 -name settings.gradle -not -path './.git/*' | head -1)
-          if [ -z "$S" ]; then echo "::error::settings.gradle не найден"; exit 1; fi
-          echo "PROJECT_DIR=$(dirname "$S")" >> "$GITHUB_ENV"
-          echo "проект: $(dirname "$S")"
-          cat "$(dirname "$S")/gradle.properties"
-
-      - name: Cache Gradle and Loom
-        uses: actions/cache@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle.properties', '**/build.gradle') }}
-          restore-keys: ${{ runner.os }}-gradle-
+          gradle-version: 9.2.1
 
-      - name: Install Gradle
+      - name: Locate project (unpack funtrigger.zip if it was uploaded as an archive)
         run: |
-          V=9.2.1
-          curl -fsSL --retry 3 "https://services.gradle.org/distributions/gradle-${V}-bin.zip" -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /opt
-          echo "/opt/gradle-${V}/bin" >> "$GITHUB_PATH"
+          if [ ! -f build.gradle ] && [ -f funtrigger.zip ]; then
+            unzip -q -o funtrigger.zip -d _src
+            echo "PROJECT_DIR=_src/funtrigger" >> "$GITHUB_ENV"
+          else
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+          fi
 
       - name: Build
         working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle build --no-daemon --stacktrace --console=plain
+        run: gradle build --stacktrace
 
-      - name: Package
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          mkdir -p dist/triggerbot
-          find build/libs -maxdepth 1 -name '*.jar' ! -name '*-dev.jar' ! -name '*-sources.jar' \
-            -exec cp {} dist/triggerbot/ \;
-          cp -r src dist/triggerbot/
-          cp build.gradle settings.gradle gradle.properties dist/triggerbot/
-          ls -la dist/triggerbot
-
-      - name: Upload jar
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v4
         with:
-          name: triggerbot-jar
+          name: funtrigger-jar
           path: |
             ${{ env.PROJECT_DIR }}/build/libs/*.jar
-            !${{ env.PROJECT_DIR }}/build/libs/*-dev.jar
             !${{ env.PROJECT_DIR }}/build/libs/*-sources.jar
-          if-no-files-found: error
-
-      - name: Upload full
-        uses: actions/upload-artifact@v7
-        with:
-          name: triggerbot-full
-          path: ${{ env.PROJECT_DIR }}/dist/triggerbot/
           if-no-files-found: error
